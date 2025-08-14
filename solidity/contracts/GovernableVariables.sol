@@ -18,6 +18,9 @@ contract GovernableVariables is IGovernableVariables, OwnableUpgradeable {
 
     // Fee Exemption
     mapping(address => bool) public feeExemptAccounts;
+    
+    // Redemption Exemption
+    mapping(address => bool) public redemptionExemptAccounts;
 
     modifier onlyGovernance() {
         require(
@@ -135,5 +138,56 @@ contract GovernableVariables is IGovernableVariables, OwnableUpgradeable {
 
         feeExemptAccounts[_account] = false;
         emit FeeExemptAccountRemoved(_account);
+    }
+
+    // Redemption Exemption Functions
+    function removeRedemptionExemptAccounts(
+        address[] calldata _accounts
+    ) external onlyGovernance {
+        require(
+            _accounts.length > 0,
+            "GovernableVariables: Redemption Exempt array must not be empty"
+        );
+        uint accountLength = _accounts.length;
+        for (uint256 i = 0; i < accountLength; i++) {
+            removeRedemptionExemptAccount(_accounts[i]);
+        }
+    }
+
+    function addRedemptionExemptAccounts(
+        address[] calldata _accounts
+    ) external onlyGovernance {
+        require(
+            _accounts.length > 0,
+            "GovernableVariables: Redemption Exempt array must not be empty."
+        );
+        uint accountLength = _accounts.length;
+        for (uint256 i = 0; i < accountLength; i++) {
+            addRedemptionExemptAccount(_accounts[i]);
+        }
+    }
+
+    function isAccountRedemptionExempt(address _account) external view returns (bool) {
+        return redemptionExemptAccounts[_account];
+    }
+
+    function addRedemptionExemptAccount(address _account) public onlyGovernance {
+        require(
+            !redemptionExemptAccounts[_account],
+            "GovernableVariables: Account must not already be redemption exempt."
+        );
+
+        redemptionExemptAccounts[_account] = true;
+        emit RedemptionExemptAccountAdded(_account);
+    }
+
+    function removeRedemptionExemptAccount(address _account) public onlyGovernance {
+        require(
+            redemptionExemptAccounts[_account],
+            "GovernableVariables: Account must currently be redemption exempt."
+        );
+
+        redemptionExemptAccounts[_account] = false;
+        emit RedemptionExemptAccountRemoved(_account);
     }
 }

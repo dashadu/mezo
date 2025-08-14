@@ -377,6 +377,12 @@ contract TroveManager is
                 continue;
             }
 
+            // Skip troves that are exempt from redemptions
+            if (borrowerOperations.governableVariables().isAccountRedemptionExempt(currentBorrower)) {
+                currentBorrower = nextUserToCheck;
+                continue;
+            }
+
             SingleRedemptionValues
                 memory singleRedemption = _redeemCollateralFromTrove(
                     contractsCache,
