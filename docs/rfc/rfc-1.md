@@ -413,7 +413,7 @@ Redemptions against the main trove affect its collateral balance, potentially cr
 There are two main cases: full redemptions and partial redemptions.
 
 A partial redemption is when the redemption amount does not full consume the debt of the trove, allowing the trove to remain open with reduced collateral and debt.
-For an example of how this could result in loss of user funds, see [Test Vector 10](#test-vector-10-redemption-scenario).
+For an example of how this could result in loss of user funds, see [Test Vector 11](#test-vector-11-large-redemption-scenario).
 
 A full redemption is when the trove's entire debt is redeemed against.  This results in the trove being closed and its surplus collateral (from being overcollateralized)
 is sent to the `CollSurplusPool` where it must be claimed with a call to `BorrowerOperations.claimCollateral()`.  This would effectively break the system until the main
@@ -421,15 +421,44 @@ trove could be reopened.
 
 ##### Mitigation Strategies
 
-**Primary Defense: CR Management**
+**Primary Defense: Collateral Shortfall Management**
 
-Because troves are redeemed against in ICR order, we can reduce the redemption risk for the main trove by keeping its CR
-high relative to the other troves in the system.
+The protocol implements a monitoring and replacement system to ensure users can always withdraw their full collateral, even after redemptions reduce the main trove's collateral balance.
 
-1. **High Initial CR**: Open main trove at 400-500% CR to provide substantial buffer above typical system levels
-2. **High MCR for Microloans**: Since the CR of the main trove is the average of the initial trove and all microloans, the MCR for microloans should be set such that the main trove CR remains high relative to the other troves.
-3. **Active Monitoring**: Track main trove CR relative to system average and percentile rankings
-4. **Emergency Procedures**: Governance intervention capability for critical situations.  For example, pausing the system to allow for emergency collateral to be added.
+**Monitoring System**
+The protocol continuously tracks:
+- **Total User Collateral Claims**: Sum of all active microloan collateral amounts
+- **Available Main Trove Collateral**: Current BTC balance in the main trove
+- **Current Shortfall**: `Max(0, User Claims - Available Collateral)`
+
+**Shortfall Detection and Replacement**
+When a redemption occurs against the main trove:
+1. **Calculate the shortfall** after the redemption
+2. **If shortfall > 0**, trigger collateral replacement
+3. **Replace exactly the shortfall amount** from the backup pool
+
+**Example Flow**
+**Before redemption:**
+- User claims: 0.0805 BTC
+- Available collateral: 0.1405 BTC
+- Shortfall: 0 BTC
+
+**After 0.07 BTC redemption:**
+- User claims: 0.0805 BTC (unchanged)
+- Available collateral: 0.0705 BTC
+- Shortfall: 0.01 BTC
+- **Action**: Replace 0.01 BTC from backup pool
+
+**After replacement:**
+- User claims: 0.0805 BTC
+- Available collateral: 0.0805 BTC
+- Shortfall: 0 BTC
+
+**Implementation Details**
+- **Replacement source**: Governance-controlled treasury or accumulated fees
+- **Trigger threshold**: Any shortfall > 0 (or could set minimum threshold)
+- **Timing**: Immediate upon redemption detection
+- **Repayment**: Backup pool gets repaid in MUSD as users close their microloans
 
 **Secondary Defense: Emergency Pause Mechanism**
 
@@ -807,17 +836,16 @@ Since the main trove has the lowest CR (182.3% < 200%), the 3,500 MUSD redemptio
 
 **Calculations:**
 - Redemption consumes: 3,500 MUSD debt
-- Proportional collateral reduction: 3,500 MUSD / 5,500 MUSD = 63.64% of main trove
-- Collateral redeemed: 0.10025 BTC * 63.64% = 0.06379 BTC ($6,379)
-- Remaining main trove collateral: 0.10025 BTC - 0.06379 BTC = 0.03646 BTC ($3,646)
+- Redemption consumes: $3,500 worth of collateral = 0.035 BTC
+- Remaining main trove collateral: 0.10025 BTC - 0.035 BTC = 0.06525 BTC ($6,525)
 - Remaining main trove debt: 5,500 MUSD - 3,500 MUSD = 2,000 MUSD
 
 **Expected State After Redemption:**
 ```
 Main Trove:
-- Collateral: 0.03646 BTC ($3,646)
+- Collateral: 0.06525 BTC ($6,525)
 - Debt: 2,000 MUSD
-- CR: 182.3% (unchanged, proportional reduction)
+- CR: ($6,525 / $2,000) = 326.25%
 
 Other System Trove:
 - Collateral: 0.2 BTC ($20,000) (unchanged)
@@ -829,14 +857,157 @@ Active Microloans (unchanged):
 - Total user debt: 3,517.5 MUSD
 
 System Analysis:
-- Available collateral: 0.03646 BTC ($3,646)
+- Available collateral: 0.06525 BTC ($6,525)
 - User collateral claims: 0.04025 BTC ($4,025)
-- Shortfall: 0.00379 BTC ($379)
-- Backing ratio: $3,646 / $4,025 = 90.6%
+- Collateral available after user claims: 0.025 BTC ($2,500)
+- Backing ratio: $4,025 / $4,025 = 100%
 ```
 
-**Impact:**
-The redemption creates an undercollateralized position where the main trove cannot fully back outstanding microloan collateral claims. Users collectively face a potential loss of $379 (9.4% shortfall) if they all attempted to withdraw simultaneously.
+The main trove can still fully cover all outstanding microloan collateral claims.
+
+**System State After All User Claims:**
+
+When all 35 users repay their debts and withdraw their collateral:
+
+**User Repayments:**
+- Each user repays: 100.5 MUSD 
+- Total MUSD received by microloans contract: 35 * 100.5 = 3,517.5 MUSD
+- User principal portion: 35 * 100 = 3,500 MUSD (would normally repay main trove debt)
+- Fee portion: 35 * 0.5 = 17.5 MUSD (microloans keeps as revenue)
+
+**User Collateral Withdrawals:**
+- Each user withdraws: 0.00115 BTC
+- Total collateral withdrawn: 35 * 0.00115 = 0.04025 BTC ($4,025)
+- Remaining main trove collateral: 0.06525 - 0.04025 = 0.025 BTC ($2,500)
+
+**Final System State:**
+```
+Main Trove:
+- Collateral: 0.025 BTC ($2,500) 
+- Debt: 2,000 MUSD
+- CR: ($2,500 / $2,000) = 125%
+
+Microloans Contract:
+- MUSD balance: 3,517.5 MUSD (from user repayments)
+- BTC balance: 0 BTC (all returned to users)
+- Outstanding user debt: 0 MUSD
+- Revenue earned: 17.5 MUSD (fees)
+```
+
+**Net Protocol Position After Redemption Event:**
+- MUSD available: 3,517.5 MUSD (from user repayments)
+- MUSD owed to main trove: 2,000 MUSD (initial main trove debt)
+- **Net MUSD gain from initial position: 3,517.5 MUSD**
+- BTC available: 0 BTC
+- BTC collateral: 0.025 BTC
+- **Net BTC loss from initial position: 0.06 - 0.025 = 0.035 BTC ($3500)**
+- **Total Net gain: 17.5 MUSD (from fees)**
+
+**Economic Analysis:**
+The protocol breaks even from the redemption event because:
+1. Users still owed the microloans contract their full debt (3,517.5 MUSD)
+2. But the main trove debt was reduced by 3,500 MUSD through redemption
+3. This creates a 1,500 MUSD "surplus" for the protocol
+4. Plus the normal 17.5 MUSD in fee revenue
+
+**This shows the redemption scenario is actually break even for the protocol, not costly.** 
+
+#### Test Vector 11: Large Redemption Scenario
+
+**Inputs:**
+- Starting from state after refinancing and 35th microloan (Test Vector 9)
+- BTC price: $100,000
+- Additional system trove: 10,000 MUSD debt at 200% CR (0.2 BTC collateral)
+- Add 35 more microloans (36th through 70th)
+- Redemption amount: 7,000 MUSD
+
+**System State After Adding 35 More Microloans:**
+```
+Main Trove:
+- Collateral: 0.10025 BTC + (35 * 0.00115 BTC) = 0.1405 BTC ($14,050)
+- Debt: 5,500 MUSD + (35 * 100 MUSD) = 9,000 MUSD
+- CR: ($14,050 / $9,000) = 156.1%
+
+Other System Trove:
+- Collateral: 0.2 BTC ($20,000)  
+- Debt: 10,000 MUSD
+- CR: 200%
+
+Active Microloans:
+- Total user collateral: 70 * 0.00115 BTC = 0.0805 BTC ($8,050)
+- Total user debt: 70 * 100.5 MUSD = 7,035 MUSD
+```
+
+**Redemption Targeting:**
+Since the main trove has the lowest CR (156.1% < 200%), the 7,000 MUSD redemption targets it first.
+
+**Calculations:**
+- Redemption consumes: 7,000 MUSD debt
+- Redemption consumes: $7,000 worth of collateral = 0.07 BTC
+- Remaining main trove collateral: 0.1405 BTC - 0.07 BTC = 0.0705 BTC ($7,050)
+- Remaining main trove debt: 9,000 MUSD - 7,000 MUSD = 2,000 MUSD
+
+**Expected State After Redemption:**
+```
+Main Trove:
+- Collateral: 0.0705 BTC ($7,050)
+- Debt: 2,000 MUSD
+- CR: ($7,050 / $2,000) = 352.5%
+
+Other System Trove:
+- Collateral: 0.2 BTC ($20,000) (unchanged)
+- Debt: 10,000 MUSD (unchanged)
+- CR: 200% (unchanged)
+
+Active Microloans (unchanged):
+- Total user collateral claims: 0.0805 BTC ($8,050)
+- Total user debt: 7,035 MUSD
+
+System Analysis:
+- Available collateral: 0.0705 BTC ($7,050)
+- User collateral claims: 0.0805 BTC ($8,050)
+- Shortfall: 0.01 BTC ($1,000)
+- Backing ratio: $7,050 / $8,050 = 87.6%
+```
+
+**System State After All User Claims:**
+
+When all 70 users repay their debts and withdraw their collateral:
+
+**User Repayments:**
+- Each user repays: 100.5 MUSD 
+- Total MUSD received by microloans contract: 70 * 100.5 = 7,035 MUSD
+- User principal portion: 70 * 100 = 7,000 MUSD (would normally repay main trove debt)
+- Fee portion: 70 * 0.5 = 35 MUSD (microloans keeps as revenue)
+
+**User Collateral Withdrawals:**
+- Each user withdraws: 0.00115 BTC
+- Total collateral withdrawn: 70 * 0.00115 = 0.0805 BTC ($8,050)
+- But only 0.0705 BTC ($7,050) is available
+- **Shortfall**: 0.01 BTC ($1,000) - users cannot get their full collateral back
+
+**In this case, the large redemption created a situation where there is not enough collateral in the main trove to cover all user claims.**
+
+However, note that the system has not suffered any losses in its net position:
+
+**Initial Position:**
+MUSD available: 2000 MUSD (initial main trove debt)
+BTC collateral: 0.06 BTC ($6000)
+Net MUSD balance: 2000
+Net BTC balance: 0.06 BTC ($6000)
+Total Assets ($): $6000 + $2000 = $8000
+
+**After redemption:**
+MUSD available: 2000 MUSD
+MUSD owed: 7035 MUSD (from user repayments)
+Net MUSD balance: 9035 MUSD
+
+BTC available: 0 BTC
+BTC collateral: 0.0705 BTC ($7050)
+BTC debt: 0.08050 ($8050)
+Net BTC balance: -0.01 BTC (-$1000) 
+Total Assets ($): $9035 - $1000 = $8035 (same as initial position plus $35 in fees)
+
 
 ### Future Work
 
