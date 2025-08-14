@@ -5,6 +5,8 @@ pragma solidity 0.8.24;
 interface IGovernableVariables {
     event FeeExemptAccountAdded(address _account);
     event FeeExemptAccountRemoved(address _account);
+    event RedemptionExemptAccountAdded(address _account);
+    event RedemptionExemptAccountRemoved(address _account);
     event RolesSet(address _council, address _treasury);
 
     function addFeeExemptAccount(address _account) external;
@@ -15,6 +17,14 @@ interface IGovernableVariables {
 
     function removeFeeExemptAccount(address _account) external;
 
+    function addRedemptionExemptAccount(address _account) external;
+
+    function addRedemptionExemptAccounts(address[] calldata _accounts) external;
+
+    function removeRedemptionExemptAccounts(address[] calldata _accounts) external;
+
+    function removeRedemptionExemptAccount(address _account) external;
+
     function startChangingRoles(address _council, address _treasury) external;
 
     function cancelChangingRoles() external;
@@ -22,6 +32,8 @@ interface IGovernableVariables {
     function finalizeChangingRoles() external;
 
     function isAccountFeeExempt(address _account) external view returns (bool);
+
+    function isAccountRedemptionExempt(address _account) external view returns (bool);
 
     function council() external view returns (address);
 

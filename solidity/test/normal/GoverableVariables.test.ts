@@ -713,4 +713,237 @@ describe("GovernableVariables", () => {
       })
     })
   })
+
+  // Redemption Exemption Tests
+  describe("addRedemptionExemptAccount()", () => {
+    it("adds an account to the redemption exempt list", async () => {
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .addRedemptionExemptAccount(alice.wallet)
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(alice.wallet),
+      ).to.equal(true)
+
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(bob.wallet),
+      ).to.equal(false)
+    })
+
+    it("prevents a trove from being redeemed during redemption", async () => {
+      // Add alice to redemption exempt list
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .addRedemptionExemptAccount(alice.wallet)
+
+      // Open troves for alice and bob
+      await openTrove(contracts, {
+        sender: alice.wallet,
+        musdAmount: to1e18("10,000"),
+        ICR: "200",
+      })
+
+      await openTrove(contracts, {
+        sender: bob.wallet,
+        musdAmount: to1e18("10,000"),
+        ICR: "200",
+      })
+
+      // Try to redeem from both troves
+      const redemptionAmount = to1e18("5,000")
+      await performRedemption(contracts, {
+        sender: carol.wallet,
+        amount: redemptionAmount,
+      })
+
+      // Check that alice's trove was not redeemed (should still have original debt)
+      await updateTroveSnapshot(contracts, alice, "after")
+      expect(alice.trove.debt.after).to.equal(to1e18("10,000") + MUSD_GAS_COMPENSATION)
+
+      // Check that bob's trove was redeemed (should have reduced debt)
+      await updateTroveSnapshot(contracts, bob, "after")
+      expect(bob.trove.debt.after).to.be.lt(to1e18("10,000") + MUSD_GAS_COMPENSATION)
+    })
+
+    context("Expected Reverts", () => {
+      it("reverts when called by non-governance", async () => {
+        await expect(
+          contracts.governableVariables
+            .connect(alice.wallet)
+            .addRedemptionExemptAccount(alice.wallet),
+        ).to.be.revertedWith(
+          "GovernableVariables: Only governance can call this function",
+        )
+      })
+
+      it("reverts when adding an already exempt address", async () => {
+        await contracts.governableVariables
+          .connect(council.wallet)
+          .addRedemptionExemptAccount(alice.wallet)
+
+        await expect(
+          contracts.governableVariables
+            .connect(council.wallet)
+            .addRedemptionExemptAccount(alice.wallet),
+        ).to.be.revertedWith(
+          "GovernableVariables: Account must not already be redemption exempt.",
+        )
+      })
+    })
+  })
+
+  describe("addRedemptionExemptAccounts()", () => {
+    it("adds multiple accounts to the redemption exempt list", async () => {
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .addRedemptionExemptAccounts([alice.wallet, bob.wallet])
+
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(alice.wallet),
+      ).to.equal(true)
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(bob.wallet),
+      ).to.equal(true)
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(carol.wallet),
+      ).to.equal(false)
+    })
+
+    context("Expected Reverts", () => {
+      it("reverts when called by non-governance", async () => {
+        await expect(
+          contracts.governableVariables
+            .connect(alice.wallet)
+            .addRedemptionExemptAccounts([alice.wallet]),
+        ).to.be.revertedWith(
+          "GovernableVariables: Only governance can call this function",
+        )
+      })
+
+      it("reverts when adding an empty list", async () => {
+        await expect(
+          contracts.governableVariables
+            .connect(council.wallet)
+            .addRedemptionExemptAccounts([]),
+        ).to.be.revertedWith(
+          "GovernableVariables: Redemption Exempt array must not be empty.",
+        )
+      })
+    })
+  })
+
+  describe("removeRedemptionExemptAccount()", () => {
+    it("removes an account from the redemption exempt list", async () => {
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .addRedemptionExemptAccount(alice.wallet)
+
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(alice.wallet),
+      ).to.equal(true)
+
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .removeRedemptionExemptAccount(alice.wallet)
+
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(alice.wallet),
+      ).to.equal(false)
+    })
+
+    it("allows a trove to be redeemed after removing exemption", async () => {
+      // Add alice to redemption exempt list
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .addRedemptionExemptAccount(alice.wallet)
+
+      // Open trove for alice
+      await openTrove(contracts, {
+        sender: alice.wallet,
+        musdAmount: to1e18("10,000"),
+        ICR: "200",
+      })
+
+      // Remove exemption
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .removeRedemptionExemptAccount(alice.wallet)
+
+      // Now try to redeem from alice's trove
+      const redemptionAmount = to1e18("5,000")
+      await performRedemption(contracts, {
+        sender: carol.wallet,
+        amount: redemptionAmount,
+      })
+
+      // Check that alice's trove was redeemed (should have reduced debt)
+      await updateTroveSnapshot(contracts, alice, "after")
+      expect(alice.trove.debt.after).to.be.lt(to1e18("10,000") + MUSD_GAS_COMPENSATION)
+    })
+
+    context("Expected Reverts", () => {
+      it("reverts when called by non-governance", async () => {
+        await expect(
+          contracts.governableVariables
+            .connect(alice.wallet)
+            .removeRedemptionExemptAccount(alice.wallet),
+        ).to.be.revertedWith(
+          "GovernableVariables: Only governance can call this function",
+        )
+      })
+
+      it("reverts when removing a non-exempt address", async () => {
+        await expect(
+          contracts.governableVariables
+            .connect(council.wallet)
+            .removeRedemptionExemptAccount(alice.wallet),
+        ).to.be.revertedWith(
+          "GovernableVariables: Account must currently be redemption exempt.",
+        )
+      })
+    })
+  })
+
+  describe("removeRedemptionExemptAccounts()", () => {
+    it("removes multiple accounts from the redemption exempt list", async () => {
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .addRedemptionExemptAccounts([alice.wallet, bob.wallet, carol.wallet])
+
+      await contracts.governableVariables
+        .connect(council.wallet)
+        .removeRedemptionExemptAccounts([alice.wallet, bob.wallet])
+
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(alice.wallet),
+      ).to.equal(false)
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(bob.wallet),
+      ).to.equal(false)
+      expect(
+        await contracts.governableVariables.redemptionExemptAccounts(carol.wallet),
+      ).to.equal(true)
+    })
+
+    context("Expected Reverts", () => {
+      it("reverts when called by non-governance", async () => {
+        await expect(
+          contracts.governableVariables
+            .connect(alice.wallet)
+            .removeRedemptionExemptAccounts([alice.wallet]),
+        ).to.be.revertedWith(
+          "GovernableVariables: Only governance can call this function",
+        )
+      })
+
+      it("reverts when removing an empty list", async () => {
+        await expect(
+          contracts.governableVariables
+            .connect(council.wallet)
+            .removeRedemptionExemptAccounts([]),
+        ).to.be.revertedWith(
+          "GovernableVariables: Redemption Exempt array must not be empty",
+        )
+      })
+    })
+  })
 })
