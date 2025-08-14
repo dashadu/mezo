@@ -1008,6 +1008,201 @@ BTC debt: 0.08050 ($8050)
 Net BTC balance: -0.01 BTC (-$1000) 
 Total Assets ($): $9035 - $1000 = $8035 (same as initial position plus $35 in fees)
 
+#### Test Vector 12: Full Redemption Scenario
+
+**Inputs:**
+- Starting from state after refinancing and 35th microloan (Test Vector 9)
+- BTC price: $100,000
+- Additional system trove: 10,000 MUSD debt at 200% CR (0.2 BTC collateral)
+- Redemption amount: 5,500 MUSD (entire main trove debt)
+
+**System State Before Redemption:**
+```
+Main Trove:
+- Collateral: 0.10025 BTC ($10,025)
+- Debt: 5,500 MUSD
+- CR: 182.3%
+
+Other System Trove:
+- Collateral: 0.2 BTC ($20,000)  
+- Debt: 10,000 MUSD
+- CR: 200%
+
+Active Microloans:
+- Total user collateral: 35 * 0.00115 BTC = 0.04025 BTC ($4,025)
+- Total user debt: 35 * 100.5 MUSD = 3,517.5 MUSD
+```
+
+**Redemption Targeting:**
+Since the main trove has the lowest CR (182.3% < 200%), the 5,500 MUSD redemption targets it first.
+
+**Calculations:**
+- Redemption consumes: 5,500 MUSD debt (entire main trove debt)
+- Redemption consumes: $5,500 worth of collateral = 0.055 BTC
+- Remaining main trove collateral: 0.10025 BTC - 0.055 BTC = 0.04525 BTC ($4,525)
+- Remaining main trove debt: 5,500 MUSD - 5,500 MUSD = 0 MUSD
+
+**Expected State After Full Redemption:**
+```
+Main Trove:
+- Status: CLOSED (debt = 0)
+- Surplus collateral: 0.04525 BTC ($4,525) sent to CollSurplusPool
+- Debt: 0 MUSD
+- CR: N/A (trove closed)
+
+Other System Trove:
+- Collateral: 0.2 BTC ($20,000) (unchanged)
+- Debt: 10,000 MUSD (unchanged)
+- CR: 200% (unchanged)
+
+Active Microloans (unchanged):
+- Total user collateral claims: 0.04025 BTC ($4,025)
+- Total user debt: 3,517.5 MUSD
+
+System Analysis:
+- Available collateral: 0 BTC (main trove closed)
+- User collateral claims: 0.04025 BTC ($4,025)
+- Shortfall: 0.04025 BTC ($4,025)
+- Backing ratio: 0% (complete undercollateralization)
+```
+
+**Critical System State:**
+The main trove has been completely closed, and the system is now in a critical failure state:
+
+1. **No Active Main Trove**: The main trove debt has been fully redeemed, closing the trove
+2. **Surplus Collateral**: 0.04525 BTC ($4,525) is sent to the CollSurplusPool
+3. **User Claims Unbacked**: 0.04025 BTC ($4,025) in user collateral claims have no backing
+4. **System Pause Required**: All operations must be paused until governance intervention
+
+**Recovery Process:**
+To restore system functionality, governance must:
+
+1. **Claim Surplus Collateral**: Call `BorrowerOperations.claimCollateral()` to recover 0.04525 BTC
+2. **Reopen Main Trove**: Use recovered collateral plus additional funding to reopen main trove
+3. **Restore User Backing**: Ensure sufficient collateral to cover all user claims
+4. **Resume Operations**: Unpause system once full backing is restored
+
+**Example Recovery:**
+- Recovered surplus: 0.04525 BTC ($4,525)
+- User collateral claims: 0.04025 BTC ($4,025)
+- **Net surplus**: 0.04525 BTC - 0.04025 BTC = 0.005 BTC ($500)
+- **Explanation**: The surplus comes from the main trove being overcollateralized (182.3% CR) while user microloans are at minimum CR (115%). The difference in collateralization ratios creates this small surplus.
+- New main trove: 0.04525 BTC collateral, 0 MUSD debt (initially)
+- System can resume with full user backing restored
+
+#### Test Vector 13: Collateral Replacement Mitigation
+
+**Inputs:**
+- Starting from Test Vector 11 (Large Redemption Scenario) where a shortfall was created
+- BTC price: $100,000
+- Shortfall after redemption: 0.01 BTC ($1,000)
+- Backup pool available: 0.02 BTC ($2,000)
+
+**System State After Redemption (from Test Vector 11):**
+```
+Main Trove:
+- Collateral: 0.0705 BTC ($7,050)
+- Debt: 2,000 MUSD
+- CR: 352.5%
+
+Active Microloans:
+- Total user collateral claims: 0.0805 BTC ($8,050)
+- Total user debt: 7,035 MUSD
+
+System Analysis:
+- Available collateral: 0.0705 BTC ($7,050)
+- User collateral claims: 0.0805 BTC ($8,050)
+- Shortfall: 0.01 BTC ($1,000)
+- Backing ratio: 87.6%
+```
+
+**Collateral Replacement Process:**
+
+**Step 1: Shortfall Detection**
+- System detects shortfall: 0.01 BTC ($1,000)
+- Shortfall > 0, triggering replacement protocol
+
+**Step 2: Backup Pool Withdrawal**
+- Governance withdraws: 0.01 BTC from backup pool
+- Backup pool balance: 0.02 BTC - 0.01 BTC = 0.01 BTC
+
+**Step 3: Collateral Addition to Main Trove**
+- Add 0.01 BTC to main trove
+- New main trove collateral: 0.0705 BTC + 0.01 BTC = 0.0805 BTC ($8,050)
+- Main trove debt: 2,000 MUSD (unchanged)
+- New main trove CR: ($8,050 / $2,000) = 402.5%
+
+**Expected State After Collateral Replacement:**
+```
+Main Trove:
+- Collateral: 0.0805 BTC ($8,050)
+- Debt: 2,000 MUSD
+- CR: 402.5%
+
+Active Microloans (unchanged):
+- Total user collateral claims: 0.0805 BTC ($8,050)
+- Total user debt: 7,035 MUSD
+
+System Analysis:
+- Available collateral: 0.0805 BTC ($8,050)
+- User collateral claims: 0.0805 BTC ($8,050)
+- Shortfall: 0 BTC
+- Backing ratio: 100% (fully backed)
+```
+
+**User Withdrawal Process:**
+When users close their microloans and withdraw collateral:
+
+**User Repayments:**
+- Each user repays: 100.5 MUSD
+- Total MUSD received: 70 * 100.5 = 7,035 MUSD
+- Principal portion: 7,000 MUSD (repays main trove debt)
+- Fee portion: 35 MUSD (microloans revenue)
+
+**User Collateral Withdrawals:**
+- Each user withdraws: 0.00115 BTC
+- Total collateral withdrawn: 70 * 0.00115 = 0.0805 BTC ($8,050)
+- All users receive their full collateral back
+
+**Backup Pool Repayment:**
+- MUSD available after user repayments: 7,035 MUSD
+- MUSD needed for main trove debt: 2,000 MUSD
+- MUSD available for backup pool repayment: 7,035 - 2,000 = 5,035 MUSD
+- Backup pool receives: 0.01 BTC worth of MUSD = 1,000 MUSD
+- Remaining microloans revenue: 5,035 - 1,000 = 4,035 MUSD
+
+**Final System State:**
+```
+Main Trove:
+- Collateral: 0 BTC (all returned to users)
+- Debt: 0 MUSD (fully repaid)
+- CR: N/A (trove closed)
+
+Microloans Contract:
+- MUSD balance: 4,035 MUSD (revenue after backup repayment)
+- BTC balance: 0 BTC
+- Outstanding user debt: 0 MUSD
+
+Backup Pool:
+- BTC balance: 0.01 BTC (repaid)
+- MUSD balance: +1,000 MUSD (received from microloans)
+```
+
+**Economic Analysis:**
+The collateral replacement successfully:
+1. **Prevented user losses**: All users received their full collateral back
+2. **Maintained system integrity**: No value destruction occurred
+3. **Repaid backup pool**: Backup pool was fully compensated in MUSD
+4. **Generated revenue**: Microloans system earned 4,035 MUSD in fees
+5. **Demonstrated mitigation effectiveness**: Showed how the replacement mechanism protects users
+
+**Key Benefits of This Approach:**
+- **Immediate protection**: Users never experience any loss of collateral
+- **Transparent process**: Clear accounting of backup pool usage and repayment
+- **Sustainable funding**: Backup pool gets repaid as users close loans
+- **No value destruction**: Unlike liquidations, redemptions preserve collateral value
+- **Governance control**: Backup pool size and usage can be managed by governance
+
 
 ### Future Work
 
