@@ -1084,7 +1084,9 @@ To restore system functionality, governance must:
 
 **Example Recovery:**
 - Recovered surplus: 0.04525 BTC ($4,525)
-- Additional funding needed: 0.04025 BTC - 0.04525 BTC = -0.005 BTC (surplus available)
+- User collateral claims: 0.04025 BTC ($4,025)
+- **Net surplus**: 0.04525 BTC - 0.04025 BTC = 0.005 BTC ($500)
+- **Explanation**: The surplus comes from the main trove being overcollateralized (182.3% CR) while user microloans are at minimum CR (115%). The difference in collateralization ratios creates this small surplus.
 - New main trove: 0.04525 BTC collateral, 0 MUSD debt (initially)
 - System can resume with full user backing restored
 
